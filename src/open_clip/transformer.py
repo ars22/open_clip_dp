@@ -199,7 +199,10 @@ class ResidualAttentionBlock(nn.Module):
         super().__init__()
 
         self.ln_1 = norm_layer(d_model)
+        # from opacus.layers.dp_multihead_attention import DPMultiheadAttenti # type: ignoreon
         self.attn = nn.MultiheadAttention(d_model, n_head)
+        # self.attn = DPMultiheadAttention(d_model, n_head)
+        
         self.ls_1 = LayerScale(d_model, ls_init_value) if ls_init_value is not None else nn.Identity()
         if is_cross_attention:
             self.ln_1_kv = norm_layer(d_model)

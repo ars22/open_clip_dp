@@ -139,6 +139,57 @@ def load_state_dict(checkpoint_path: str, map_location='cpu'):
     return state_dict
 
 
+def convert_state_dict(key, value, state_dict):
+    r"""
+    Loads module from previously saved state.
+
+    Supports loading from both :class:`torch.nn.MultiheadAttention` and
+    :class:`opacus.layers.dp_multihead_attention.DPMultiheadAttention`.
+
+    Args:
+        state_dict: Please refer to
+            https://pytorch.org/tutorials/recipes/recipes/what_is_state_dict.html.
+    """
+    if 'in_proj_weight' in key:
+        prefix = key[:-14]
+        qweight, kweight, vweight = value.chunk(3, dim=0)
+
+        state_dict[prefix + "qlinear.weight"] = qweight
+        state_dict[prefix + "klinear.weight"] = kweight
+        state_dict[prefix + "vlinear.weight"] = vweight
+        del state_dict[key]
+
+    elif "in_proj_bias" in key:
+        prefix = key[:-12]
+        qbias, kbias, vbias = value.chunk(3, dim=0)
+
+        state_dict[prefix + "qlinear.bias"] = qbias
+        state_dict[prefix + "klinear.bias"] = kbias
+        state_dict[prefix + "vlinear.bias"] = vbias
+        del state_dict[key]
+
+    '''
+    if prefix + "bias_k" in state_dict:
+        state_dict[prefix + "seq_bias_k.bias"] = state_dict[prefix + "bias_k"].squeeze()
+        del state_dict[prefix + "bias_k"]
+
+    if prefix + "bias_v" in state_dict:
+        state_dict[prefix + "seq_bias_v.bias"] = state_dict[prefix + "bias_v"].squeeze()
+        del state_dict[prefix + "bias_v"]
+
+    if prefix + "q_proj_weight" in state_dict:
+        state_dict[prefix + "qlinear.weight"] = state_dict[prefix + "q_proj_weight"]
+        del state_dict[prefix + "q_proj_weight"]
+
+    if prefix + "k_proj_weight" in state_dict:
+        state_dict[prefix + "klinear.weight"] = state_dict[prefix + "k_proj_weight"]
+        del state_dict[prefix + "k_proj_weight"]
+
+    if prefix + "v_proj_weight" in state_dict:
+        state_dict[prefix + "vlinear.weight"] = state_dict[prefix + "v_proj_weight"]
+        del state_dict[prefix + "v_proj_weight"]
+   '''
+
 def load_checkpoint(model, checkpoint_path, strict=True):
     if Path(checkpoint_path).suffix in ('.npz', '.npy'):
         from .big_vision import load_big_vision_weights
@@ -156,6 +207,12 @@ def load_checkpoint(model, checkpoint_path, strict=True):
     position_id_key = 'text.transformer.embeddings.position_ids'
     if position_id_key in state_dict and not hasattr(model, position_id_key):
         del state_dict[position_id_key]
+    #print(state_dict)
+
+    for (k, v) in list(state_dict.items()):
+        if 'resblocks' in k:
+            convert_state_dict(k, v, state_dict)
+    
     resize_pos_embed(state_dict, model)
     resize_text_pos_embed(state_dict, model)
     incompatible_keys = model.load_state_dict(state_dict, strict=strict)

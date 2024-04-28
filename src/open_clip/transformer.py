@@ -11,6 +11,7 @@ from torch.utils.checkpoint import checkpoint
 from .utils import to_2tuple
 from .pos_embed import get_2d_sincos_pos_embed
 
+import opacus
 
 class LayerNormFp32(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16 (by casting to float32 and back)."""
@@ -173,7 +174,8 @@ class AttentionalPooler(nn.Module):
     ):
         super().__init__()
         self.query = nn.Parameter(torch.randn(n_queries, d_model))
-        self.attn = nn.MultiheadAttention(d_model, n_head, kdim=context_dim, vdim=context_dim)
+        #self.attn = nn.MultiheadAttention(d_model, n_head, kdim=context_dim, vdim=context_dim)
+        self.attn = opacus.layers.DPMultiheadAttention(d_model, n_head, kdim=context_dim, vdim=context_dim)
         self.ln_q = norm_layer(d_model)
         self.ln_k = norm_layer(context_dim)
 
@@ -200,7 +202,9 @@ class ResidualAttentionBlock(nn.Module):
 
         self.ln_1 = norm_layer(d_model)
         # from opacus.layers.dp_multihead_attention import DPMultiheadAttenti # type: ignoreon
-        self.attn = nn.MultiheadAttention(d_model, n_head)
+        #self.attn = nn.MultiheadAttention(d_model, n_head, kdim=context_dim, vdim=context_dim)
+        self.attn = opacus.layers.DPMultiheadAttention(d_model, n_head)
+        #self.attn = nn.MultiheadAttention(d_model, n_head)
         # self.attn = DPMultiheadAttention(d_model, n_head)
         
         self.ls_1 = LayerScale(d_model, ls_init_value) if ls_init_value is not None else nn.Identity()
@@ -638,7 +642,14 @@ class TextTransformer(nn.Module):
         attn_std = self.transformer.width ** -0.5
         fc_std = (2 * self.transformer.width) ** -0.5
         for block in self.transformer.resblocks:
-            nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
+            if block.attn.in_proj_weight is not None:
+                nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
+            else:
+                pass
+                # init qkv?
+                #nn.init.normal_(block.attn.qlinear, std=attn_std)
+                #nn.init.normal_(block.attn.klinear, std=attn_std)
+                #nn.init.normal_(block.attn.vlinear, std=attn_std)
             nn.init.normal_(block.attn.out_proj.weight, std=proj_std)
             nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
             nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
@@ -758,12 +769,28 @@ class MultimodalTransformer(Transformer):
         attn_std = self.transformer.width ** -0.5
         fc_std = (2 * self.transformer.width) ** -0.5
         for block in self.transformer.resblocks:
-            nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
+            if block.attn.in_proj_weight is not None:
+                nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
+            else:
+                pass
+                # init qkv?
+                #nn.init.normal_(block.attn.qlinear, std=attn_std)
+                #nn.init.normal_(block.attn.klinear, std=attn_std)
+                #nn.init.normal_(block.attn.vlinear, std=attn_std)
+            #nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
             nn.init.normal_(block.attn.out_proj.weight, std=proj_std)
             nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
             nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
         for block in self.transformer.cross_attn:
-            nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
+            if block.attn.in_proj_weight is not None:
+                nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
+            else:
+                # init qkv?
+                pass
+                #nn.init.normal_(block.attn.qlinear, std=attn_std)
+                #nn.init.normal_(block.attn.klinear, std=attn_std)
+                #nn.init.normal_(block.attn.vlinear, std=attn_std)
+            #nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
             nn.init.normal_(block.attn.out_proj.weight, std=proj_std)
             nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
             nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)

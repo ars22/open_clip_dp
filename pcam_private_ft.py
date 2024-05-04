@@ -129,7 +129,5 @@ delta = 1e-10
 for epoch in range(3):
     train_epoch(train_loader, model, optimizer, criterion, torch.device('cuda'), sigma, cp_bound)
     compute_dp_sgd_privacy(len(pcam_train_dataset), batch_size, sigma, epoch+1, delta)
-                
 
 
-# 

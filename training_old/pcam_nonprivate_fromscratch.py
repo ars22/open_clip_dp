@@ -9,6 +9,7 @@ import torch.distributed as dist
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader, DistributedSampler
 from torch.profiler import profile, record_function, ProfilerActivity
+from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 
 import logging
 
@@ -17,6 +18,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from PIL import Image
 import tqdm
 import pickle
+
+import convert_pcam
+from convert_pcam import pcam_train_dataset, pcam_test_dataset, load_and_convert
 
 root = "."
 
@@ -64,17 +68,35 @@ class AverageMeter:
         val = self.val / self.num * 100 if percentage else self.val / self.num
         return val
 
+import torch.nn as nn
+import tqdm as tq
+
+# xavier initialization
+def initialize_weights(m):
+    if hasattr(m, 'weight') and m.weight.dim() > 1:
+        print(f'using xavier initialization on weights of: {str(m)}')
+        nn.init.xavier_uniform_(m.weight.data)
+
 def init_training(rank, lr, epochs, batch):
-    network, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32')
+    network, _, preprocess = open_clip.create_model_and_transforms('ViT-S-32')
     network = network.visual # Train vision only
 
     pcam_train_dataset = datasets.PCAM(root, download=True, split='train', transform=preprocess)
-    sampler = DistributedSampler(pcam_train_dataset, num_replicas=world_size,
-                                 rank=rank, shuffle=False, drop_last=False)
+    #sampler = DistributedSampler(pcam_train_dataset, num_replicas=world_size,
+    #                             rank=rank, shuffle=False, drop_last=False)
 
+    # train_x, train_y = load_and_convert(pcam_train_dataset)
+
+    # print('>>>>>> Moving to GPU')
+    # train_x = torch.from_numpy(train_x).to(rank)
+    # train_y = torch.from_numpy(train_y).to(rank)
+    # transform = convert_pcam.transform.to(rank)
+
+    # print('>>>>>> Moved to GPU')
+    
     batch_size = batch // world_size
-    train_loader = torch.utils.data.DataLoader(pcam_train_dataset, batch_size, sampler=sampler)
-    lp = torch.nn.Linear(in_features=512, out_features=2)
+    train_loader = torch.utils.data.DataLoader(pcam_train_dataset, batch_size)
+    lp = torch.nn.Linear(in_features=384, out_features=2)
     model = Model(network, lp)
     model = DDP(model)
 
@@ -82,14 +104,29 @@ def init_training(rank, lr, epochs, batch):
     for tensor in model.parameters():
         torch.nn.init.normal_(tensor.data, mean=0.0, std=0.02)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=lr,
+            momentum=0.9
+        )
 
-    return model, optimizer, train_loader
+    lr_scheduler = CosineAnnealingWarmupRestarts(
+        optimizer,
+        first_cycle_steps=epochs * len(train_loader),
+        cycle_mult=1.0,
+        max_lr=lr,
+        min_lr=0,
+        warmup_steps=2000
+    )
+    
+    #optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    return model, optimizer, lr_scheduler, train_loader, preprocess
 
 def train_pcam(rank, lr, epochs, batch):
     setup(rank, world_size)
 
-    model, optimizer, data_loader = init_training(rank, lr, epochs, batch)
+    model, optimizer, lr_scheduler, train_loader, preprocess = init_training(rank, lr, epochs, batch)
     print('Rank is', rank)
     model.to(rank)
     model.train()
@@ -113,8 +150,14 @@ def train_pcam(rank, lr, epochs, batch):
     for epoch in range(num_epochs):
         train_loss = AverageMeter()
         train_acc = AverageMeter()
-        pbar = tqdm.tqdm(data_loader, desc='Training', total=len(data_loader))
-        for i, (images, labels) in enumerate(pbar):
+        #idxs = range(len(train_x) // batch)
+        #pbar = tqdm.tqdm(idxs, desc='Training', total=len(idxs))
+        pbar = tqdm.tqdm(train_loader, desc='Training', total=len(train_loader))
+        for images, labels in pbar:
+        #for i in pbar:
+            #images = train_x[i*batch:(i+1)*batch]
+            #images = transform(images)
+            #labels = train_y[i*batch:(i+1)*batch]
             images = images.to(rank)
             labels = labels.to(rank)
             y_pred = model(images)
@@ -124,6 +167,7 @@ def train_pcam(rank, lr, epochs, batch):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            lr_scheduler.step()
             train_loss.update(loss.item(), len(images))
             train_acc.update(acc.mean().item(), len(images))
             pbar.set_description(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f}")
@@ -136,9 +180,9 @@ def train_pcam(rank, lr, epochs, batch):
 
     if rank == 0:
         torch.distributed.barrier()
-        network, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32')
+        network, _, preprocess = open_clip.create_model_and_transforms('ViT-S-32')
         pcam_test_dataset = datasets.PCAM(root, download=True, split='test', transform=preprocess)
-        test_loader = torch.utils.data.DataLoader(pcam_test_dataset, batch_size, shuffle=True)
+        test_loader = torch.utils.data.DataLoader(pcam_test_dataset, batch, shuffle=True)
         pbar = tqdm.tqdm(test_loader, desc='Eval', total=len(test_loader))
         test_acc = AverageMeter()
         for images, labels in pbar:
@@ -151,7 +195,7 @@ def train_pcam(rank, lr, epochs, batch):
                 #print(f'Test Accuracy: {accuracy.item():.4f}')
                 test_acc.update(accuracy.mean().item(), len(images))
                 pbar.set_description(f"Acc: {test_acc.get():.6f}")
-        #mf.write(f"Test acc: {test_acc.get():.6f}\n")
+        mf.write(f"Test acc: {test_acc.get():.6f}\n")
 
     cleanup()
         
@@ -159,8 +203,8 @@ import torch.multiprocessing as mp
 
 def main():
     lrs = [1e-6, 1e-5, 1e-4]
-    epochs=20
-    batch=1024
+    epochs=10
+    batch=256
     
     for lr in lrs:
         mp.spawn(

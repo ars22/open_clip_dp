@@ -9,6 +9,7 @@ import torch
 import torch.distributed as dist
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader, DistributedSampler
+from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 
 import logging
 
@@ -20,7 +21,7 @@ import tqdm
 import pickle
 
 from opacus import PrivacyEngine
-from privacy_analysis.compute_privacy_sgm import *
+#from privacy_analysis.compute_privacy_sgm import *
 
 root = "."
 
@@ -36,8 +37,8 @@ class Model(torch.nn.Module):
         return x
 
 # Create an instance of the PCAM dataset
-pcam_train_dataset = datasets.PCAM(root, download=True, split='train')
-pcam_test_dataset = datasets.PCAM(root, download=True, split='test')
+pcam_train_dataset = datasets.PCAM(root, download=False, split='train')
+pcam_test_dataset = datasets.PCAM(root, download=False, split='test')
 
 #world_size = torch.cuda.device_count()
 world_size = 1
@@ -68,24 +69,52 @@ class AverageMeter:
         val = self.val / self.num * 100 if percentage else self.val / self.num
         return val
 
-    
+import torch.nn as nn
+import tqdm as tq
+
+# xavier initialization
+def initialize_weights(m):
+    if hasattr(m, 'weight') and m.weight.dim() > 1:
+        print(f'using xavier initialization on weights of: {str(m)}')
+        nn.init.xavier_uniform_(m.weight.data)
+
 def init_training(rank, lr, epochs, batch, clip, eps, delta):
-    network, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32')
+    network, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
     network = network.visual # Train vision only
 
-    pcam_train_dataset = datasets.PCAM(root, download=True, split='train', transform=preprocess)
+    pcam_train_dataset = datasets.PCAM(root, download=False, split='train', transform=preprocess)
 
     batch_size = batch
     train_loader = torch.utils.data.DataLoader(pcam_train_dataset, batch_size, shuffle=True)
+    #lp = torch.nn.Linear(in_features=384, out_features=2)
     lp = torch.nn.Linear(in_features=512, out_features=2)
     model = Model(network, lp)
+
+    model.apply(initialize_weights)
     model = DPDDP(model)
 
     # random initialization
-    for tensor in model.parameters():
-        torch.nn.init.normal_(tensor.data, mean=0.0, std=0.02)
+    # for tensor in model.parameters():
+    #     torch.nn.init.normal_(tensor.data, mean=0.0, std=0.02)
+    
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=lr,
+            momentum=0.9
+        )
+
+    lr_scheduler = CosineAnnealingWarmupRestarts(
+        optimizer,
+        first_cycle_steps=epochs * len(train_loader),
+        cycle_mult=1.0,
+        max_lr=lr,
+        min_lr=0,
+        warmup_steps=2000
+    )
+
+    # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     print("Number of training parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
@@ -116,18 +145,19 @@ def init_training(rank, lr, epochs, batch, clip, eps, delta):
     
     print('Using noise multiplier', optimizer.noise_multiplier)
 
-    return model, optimizer, data_loader, privacy_engine
+    return model, optimizer, data_loader, privacy_engine, lr_scheduler, preprocess
 
 def train_pcam(rank, lr, epochs, batch, clip, eps, delta):
     setup(rank, world_size)
 
-    model, optimizer, data_loader, privacy_engine = init_training(rank, lr, epochs, batch, clip, eps, delta)
+    model, optimizer, data_loader, privacy_engine, lr_scheduler, preprocess = init_training(rank, lr, epochs, batch, clip, eps, delta)
     print('Rank is', rank)
     model.to(rank)
     model.train()
+    # print('Privacy epsilon is', privacy_engine.get_epsilon(10e-10))
 
     num_epochs = epochs
-    folder_prefix = 'scratch_models/scratch_e{}_d{}/l{}_ep{}_b{}_c{}/'.format(eps, delta, lr, epochs, batch, clip)
+    folder_prefix = 'ft_models_cosine/finetune_e{}_d{}/l{}_ep{}_b{}_c{}/'.format(eps, delta, lr, epochs, batch, clip)
     if not os.path.exists(folder_prefix):
         os.makedirs(folder_prefix)
     else:
@@ -157,19 +187,21 @@ def train_pcam(rank, lr, epochs, batch, clip, eps, delta):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            lr_scheduler.step()
             train_loss.update(loss.item(), len(images))
             train_acc.update(acc.mean().item(), len(images))
-            pbar.set_description(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f}")
-            mf.write(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f}\n")
+            pbar.set_description(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f} Lr: {optimizer.param_groups[0]['lr']} ")
+            mf.write(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f} Lr: {optimizer.param_groups[0]['lr'] }\n")
 
         if rank == 0:
             torch.distributed.barrier()
-            torch.save(model.state_dict(), folder_prefix + model_prefix + str(epoch) + '.pt')
+        print(f"Epsilon: eps: {privacy_engine.get_epsilon(delta)}")
+        torch.save(model.state_dict(), folder_prefix + model_prefix + str(epoch) + '.pt')
 
     if rank == 0:
         torch.distributed.barrier()
-        pcam_test_dataset = datasets.PCAM(root, download=True, split='test', transform=preprocess)
-        test_loader = torch.utils.data.DataLoader(pcam_test_dataset, batch_size, shuffle=True)
+        pcam_test_dataset = datasets.PCAM(root, download=False, split='test', transform=preprocess)
+        test_loader = torch.utils.data.DataLoader(pcam_test_dataset, batch, shuffle=True)
         pbar = tqdm.tqdm(test_loader, desc='Eval', total=len(test_loader))
         test_acc = AverageMeter()
         for images, labels in pbar:
@@ -189,16 +221,16 @@ def train_pcam(rank, lr, epochs, batch, clip, eps, delta):
 import torch.multiprocessing as mp
 
 def main():
-    lr = 1e-5
-    epochs=20
+    lr = 3e-3
+    epochs=10
     batch=32
     
     eps=5.0
     delta=1e-10
     
     #clips=[0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0]
-    clips=[1.0, 2.5, 5.0, 7.5, 10.0]
-
+    #clips=[1.0, 2.5, 5.0, 7.5, 10.0]
+    clips = [0.5, 1., 2., 5.]
     for clip in clips:
         mp.spawn(
             train_pcam,

@@ -101,7 +101,8 @@ def gridsearch(outfile_name):
     epochs = [1000, 2000]
     lr = 10.**np.arange(-2, 2)
     noise = 100.0
-    clip = [0.1, 1.0, 5.0]
+    #clip = [0.1, 1.0, 5.0]
+    clip = [2.0, 5.0, 7.5, 10.0]
 
     f = open(outfile_name, 'w')
     
@@ -121,4 +122,4 @@ def gridsearch(outfile_name):
 
     print('Top:', results[:5])
         
-gridsearch('lp_gridsearch_epochs.csv')
+gridsearch('lp_gridsearch_clip.csv')

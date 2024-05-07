@@ -18,7 +18,7 @@ def finetune_nonprivate(init_lr, epochs, batch, folder_prefix):
     model = train_loop(model, optimizer, lr_scheduler, epochs, batch,
                        data_loader, folder_prefix)
 
-    test_accuracy = eval(model, test_data, folder_prefix)
+    test_accuracy = eval(model, test_data, batch, folder_prefix)
 
     return (model, test_accuracy)
     
@@ -40,7 +40,7 @@ def finetune_private(init_lr, epochs, batch, clip, eps, delta, folder_prefix):
     model = train_loop(model, optimizer, lr_scheduler, epochs, batch,
                        data_loader, folder_prefix)
 
-    test_accuracy = eval(model, test_data, folder_prefix)
+    test_accuracy = eval(model, test_data, batch, folder_prefix)
 
     return (model, test_accuracy)
 
@@ -62,7 +62,7 @@ def train_fromscratch_nonprivate(init_lr, epochs, batch, folder_prefix):
     model = train_loop(model, optimizer, lr_scheduler, epochs, batch,
                        data_loader, folder_prefix)
 
-    test_accuracy = eval(model, test_data, folder_prefix)
+    test_accuracy = eval(model, test_data, batch, folder_prefix)
 
     return (model, test_accuracy)
 
@@ -86,27 +86,29 @@ def train_fromscratch_private(init_lr, epochs, batch, clip, eps, delta, folder_p
     model = train_loop(model, optimizer, lr_scheduler, epochs, batch,
                        data_loader, folder_prefix)
 
-    test_accuracy = eval(model, test_data, folder_prefix)
+    test_accuracy = eval(model, test_data, batch, folder_prefix)
 
     return (model, test_accuracy)
 
 def main():
-    lrs = [1e-6, 1e-5, 1e-4]
+    #lrs = [1e-6, 1e-5, 1e-4]
+    lrs = [3e-3]
     epochs=10
-    batch=32
+    batch=64
     
     eps=5.0
     delta=1e-10
 
     #clips=[0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0]
-    clips=[1.0, 2.5, 5.0]#, 7.5, 10.0]
+    #clips=[1.0, 2.5, 5.0]#, 7.5, 10.0]
+    clips = [2.0]
 
-    folder = 'runs/private_scratch/'
+    folder = 'runs/private_ft/'
     
     for lr in lrs:
         for clip in clips:
             folder += 'l{}_e{}_b{}_c{}_eps{}_del{}/'.format(lr, epochs, batch, clip, eps, delta)
-            train_fromscratch_private(lr, epochs, batch, clip, eps, delta, folder)
+            finetune_private(lr, epochs, batch, clip, eps, delta, folder)
             
 if __name__=='__main__':
     main()

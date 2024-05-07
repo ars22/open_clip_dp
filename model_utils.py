@@ -179,7 +179,7 @@ def train_loop(model, optimizer, lr_scheduler, epochs, batch, train_loader,
 
     return model
         
-def eval(model, test_dataset, folder_prefix):
+def eval(model, test_dataset, batch, folder_prefix):
     if not os.path.exists(folder_prefix):
         os.makedirs(folder_prefix)
     else:

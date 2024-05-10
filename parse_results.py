@@ -67,4 +67,4 @@ def parse_lp():
     for v in vals:
         print(v)
 
-parse_fromscratch_nonpriv()
+parse_finetuning()

@@ -22,30 +22,40 @@ train_labels = torch.load('train_labels.pt').cuda()
 train_data = torch.utils.data.TensorDataset(train_image_features, train_labels)
 # Train the model
 
-def train_lp(lr=1.0, epochs=1000, noise_mult = 100.0, max_grad_norm=1.0):
+def train_lp(lr=1.0, epochs=10, eps=0.1, max_grad_norm=1.0, delta=1e-10):
     model = torch.nn.Linear(in_features=len(train_image_features[0]), out_features=2).cuda()
 
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=lr,
+            momentum=0.9
+        )
     data_loader = torch.utils.data.DataLoader(train_data , batch_size=len(train_data), shuffle=False)
-    
+
+    cp_bound = max_grad_norm
     privacy_engine = PrivacyEngine()
-    model, optimizer, data_loader = privacy_engine.make_private(
+    model, optimizer, data_loader = privacy_engine.make_private_with_epsilon(
         module=model,
         optimizer=optimizer,
         data_loader=data_loader,
-        noise_multiplier=noise_mult,
-        max_grad_norm=max_grad_norm
+        #noise_multiplier=sigma,
+        max_grad_norm=cp_bound,
+        poisson_sampling=True,
+        target_delta=delta,
+        target_epsilon=eps,
+        epochs=epochs
     )
 
-    folder_prefix = 'linear_probe/lp_lr{}_ep{}_c{}/'.format(lr, epochs, max_grad_norm)
+    folder_prefix = 'linear_probe/lp_lr{}_ep{}_c{}_eps{}/'.format(lr, epochs, max_grad_norm, eps)
     if not os.path.exists(folder_prefix):
         os.makedirs(folder_prefix)
     else:
         print('Warning: Directory exists')
         
     model_prefix = 'clip_lp_epoch_'
-    
+
+    accuracy=None
     for epoch in range(epochs):
         optimizer.zero_grad()
         
@@ -56,10 +66,13 @@ def train_lp(lr=1.0, epochs=1000, noise_mult = 100.0, max_grad_norm=1.0):
 
         if epoch % 100 == 0:
             print(f'Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.6f}')
+            _, predicted = torch.max(y_pred, dim=1)
+            accuracy = (predicted == train_labels).float().mean()
+            print(f'Accuracy: {accuracy.item():.4f}')
 
     torch.save(model.state_dict(), folder_prefix + model_prefix + str(epoch) + '.pt')
             
-    eps = privacy_engine.accountant.get_epsilon(delta=0.1/len(train_data))
+    eps = privacy_engine.accountant.get_epsilon(delta=delta)
     print('Epsilon:', eps)
     
     test_image_features = torch.load('test_features.pt').cuda()
@@ -67,59 +80,37 @@ def train_lp(lr=1.0, epochs=1000, noise_mult = 100.0, max_grad_norm=1.0):
     test_labels = torch.load('test_labels.pt').cuda()
 
     # Evaluate the model
-    accuracy = None
+    test_accuracy = None
     with torch.no_grad():
         y_pred = model(test_image_features.float())
         _, predicted = torch.max(y_pred, dim=1)
-        accuracy = (predicted == test_labels).float().mean()
+        test_accuracy = (predicted == test_labels).float().mean()
         print(f'Test Accuracy: {accuracy.item():.4f}')
-    return (accuracy, eps)
-
-'''
-def get_noise_mult(outfile_name):
-    epochs = [10, 100, 500, 1000, 2000]
-    noise = 10.**np.arange(1, 5)
-    print(noise)
-
-    lr = 0.01
-    clip = 1.0
-    
-    f = open(outfile_name, 'w')
-    
-    grid = itertools.product(epochs, noise)
-    for (e, n) in grid:
-        (accuracy, eps) = train_lp(lr, e, n, clip)
-        print(accuracy, eps)
-        f.write('{} {} {} {} {} {}\n'.format(lr, e, n, clip, accuracy, eps))
-        f.flush()
-
-get_noise_mult('eps.csv')
-'''
+    return (accuracy, test_accuracy)
 
 def gridsearch(outfile_name):
-    #epochs = [10, 50, 100, 250, 500]
-    epochs = [1000, 2000]
-    lr = 10.**np.arange(-2, 2)
-    noise = 100.0
-    #clip = [0.1, 1.0, 5.0]
-    clip = [2.0, 5.0, 7.5, 10.0]
+    epochs = [1000]
+    lr = [5e-1]
+    eps = [0.3, 0.4]
+    clip = [1.0]
 
     f = open(outfile_name, 'w')
     
-    grid = itertools.product(epochs, lr, clip)
+    grid = itertools.product(eps, epochs, lr, clip)
 
     results = []
 
-    for (e, l, c) in grid:
-        (accuracy, eps) = train_lp(l, e, noise, c)
-        print(accuracy, eps)
-        f.write('{} {} {} {} {} {}\n'.format(l, e, noise, c, accuracy, eps))
+    f.write('LR\tEpochs\tEps\tClip\tTrainAcc\tTestAcc\n')
+    for (eps, e, l, c) in grid:
+        (train_acc, test_acc) = train_lp(l, e, eps, c)
+        print(train_acc, test_acc)
+        f.write('{}\t{}\t{}\t{}\t{}\t{}\n'.format(l, e, eps, c, train_acc, test_acc))
         f.flush()
 
-        results.append((l, e, noise, c, accuracy, eps))
+        results.append((l, e, eps, c, train_acc, test_acc))
 
-    results.sort(key = lambda x: x[4], reverse=True)
+    results.sort(key = lambda x: x[5], reverse=True)
 
     print('Top:', results[:5])
         
-gridsearch('lp_gridsearch_clip.csv')
+gridsearch('lp_gridsearch_2.csv')

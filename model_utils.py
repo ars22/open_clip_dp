@@ -12,6 +12,11 @@ import pickle
 
 from opacus import PrivacyEngine
 
+import numpy as np
+import random
+np.random.seed(42)
+random.seed(42)
+
 VITS='ViT-S-32'
 VITB='ViT-B-32'
 LAION='laion2b_s34b_b79k'
@@ -63,10 +68,15 @@ def init_model(model_name, pretrained_name=None, private=False):
 
     return network, preprocess
 
-def init_pcam(root='.', preprocess=None):
+def init_pcam(root='.', preprocess=None, subsample=-1):
     pcam_train_dataset = datasets.PCAM(root, download=True, split='train', transform=preprocess)
     pcam_test_dataset = datasets.PCAM(root, download=True, split='test', transform=preprocess)
 
+    if subsample > 0:
+        print('subsampling', subsample)
+        small_pcam_train_dataset = torch.utils.data.Subset(pcam_train_dataset, np.random.choice(len(pcam_train_dataset), subsample, replace=False))
+        pcam_train_dataset = small_pcam_train_dataset
+    
     return (pcam_train_dataset, pcam_test_dataset)
 
 def init_fmow(preprocess):
@@ -97,13 +107,15 @@ def priv_init_training(model,
             momentum=0.9
         )
 
+    first_cycle_steps = epochs * len(train_loader)
+    print(first_cycle_steps // 2)
     lr_scheduler = CosineAnnealingWarmupRestarts(
         optimizer,
-        first_cycle_steps=epochs * len(train_loader),
+        first_cycle_steps=first_cycle_steps,
         cycle_mult=1.0,
         max_lr=lr,
         min_lr=0,
-        warmup_steps=2000
+        warmup_steps=first_cycle_steps // 2
     )
 
     criterion = torch.nn.CrossEntropyLoss()
@@ -120,7 +132,7 @@ def priv_init_training(model,
         data_loader=train_loader,
         #noise_multiplier=sigma,
         max_grad_norm=cp_bound,
-        poisson_sampling=False,
+        poisson_sampling=True,
         target_delta=delta,
         target_epsilon=eps,
         epochs=epochs
@@ -138,13 +150,15 @@ def init_training(model, lr, epochs, batch,
             momentum=0.9
         )
 
+    first_cycle_steps = epochs * len(train_loader)
+    print(first_cycle_steps // 2)
     lr_scheduler = CosineAnnealingWarmupRestarts(
         optimizer,
-        first_cycle_steps=epochs * len(train_loader),
+        first_cycle_steps=first_cycle_steps,
         cycle_mult=1.0,
         max_lr=lr,
         min_lr=0,
-        warmup_steps=2000
+        warmup_steps=first_cycle_steps // 2
     )
 
     criterion = torch.nn.CrossEntropyLoss()
@@ -195,7 +209,7 @@ def train_loop(model, optimizer, lr_scheduler, epochs, batch, train_loader,
 
     return model
         
-def eval(model, test_dataset, folder_prefix):
+def eval(model, test_dataset, batch, folder_prefix):
     if not os.path.exists(folder_prefix):
         os.makedirs(folder_prefix)
     else:

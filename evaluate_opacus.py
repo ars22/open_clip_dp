@@ -66,7 +66,7 @@ criterion = torch.nn.CrossEntropyLoss()
 
 print("Number of training parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
-state_dict = torch.load('runs/private_scratch_n10000/l0.003_e5_b64_c2.0_eps0.5_del1e-10/clip_ft_epoch_4.pt')
+state_dict = torch.load('/home/pthaker/open_clip_dp/runs/private_ft/l0.003_e10_b64_c2.0_eps0.1_del1e-10/clip_ft_epoch_0.pt')
 state_dict = {k.replace('_module.', '') : v for k,v in state_dict.items()}
 model.load_state_dict(state_dict)
 

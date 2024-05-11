@@ -69,11 +69,25 @@ def init_pcam(root='.', preprocess=None):
 
     return (pcam_train_dataset, pcam_test_dataset)
 
+def init_fmow(preprocess):
+    from wilds import get_dataset
+    dataset = get_dataset(dataset="fmow", download=False, root_dir='/data/skolawol/wilds-data/')
+    fmow_train_dataset = dataset.get_subset(
+        "train",
+        transform=preprocess
+    )
+    fmow_test_dataset = dataset.get_subset(
+        "id_val",
+        transform=preprocess
+    )
+    return (fmow_train_dataset, fmow_test_dataset)
+
+
 def priv_init_training(model,
                        lr, epochs, batch, clip,
                        eps, delta,
                        train_dataset):
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch, shuffle=True, num_workers=12)
 
     #lp = torch.nn.Linear(in_features=512, out_features=2)
     #model = Model(network, lp).cuda()
@@ -174,6 +188,8 @@ def train_loop(model, optimizer, lr_scheduler, epochs, batch, train_loader,
             train_acc.update(acc.mean().item(), len(images))
             pbar.set_description(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f}")
             mf.write(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f}\n")
+        mf.write(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
+        print(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
 
         torch.save(model.state_dict(), folder_prefix + model_prefix + str(epoch) + '.pt')
 
@@ -190,7 +206,7 @@ def eval(model, test_dataset, folder_prefix):
     mf = open(folder_prefix + metadata_file, 'w')
 
     #pcam_test_dataset = datasets.PCAM(root, download=True, split='test', transform=preprocess)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset, 64, shuffle=True)
     pbar = tqdm.tqdm(test_loader, desc='Eval', total=len(test_loader))
     test_acc = AverageMeter()
     for images, labels in pbar:
@@ -200,7 +216,7 @@ def eval(model, test_dataset, folder_prefix):
             y_pred = model(images)
             _, predicted = torch.max(y_pred, dim=1)
             accuracy = (predicted == labels).float().mean()
-            print(f'Test Accuracy: {accuracy.item():.4f}')
+            # print(f'Test Accuracy: {accuracy.item():.4f}')
             test_acc.update(accuracy.mean().item(), len(images))
             pbar.set_description(f"Acc: {test_acc.get():.6f}")
     mf.write(f"Test acc: {test_acc.get():.6f}\n")

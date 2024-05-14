@@ -81,7 +81,7 @@ def init_pcam(root='.', preprocess=None, subsample=-1):
 
 def init_fmow(root, preprocess):
     from wilds import get_dataset
-    dataset = get_dataset(dataset="fmow", download=False, root_dir='/data/skolawol/wilds-data/')
+    dataset = get_dataset(dataset="fmow", download=False, root_dir='/home/pthaker/wilds/data')
     fmow_train_dataset = dataset.get_subset(
         "train",
         transform=preprocess
@@ -151,14 +151,15 @@ def init_training(model, lr, epochs, batch,
         )
 
     first_cycle_steps = epochs * len(train_loader)
-    print(first_cycle_steps // 2)
+    warmup_steps = first_cycle_steps * 0.1
+    print(first_cycle_steps,warmup_steps)
     lr_scheduler = CosineAnnealingWarmupRestarts(
         optimizer,
         first_cycle_steps=first_cycle_steps,
         cycle_mult=1.0,
         max_lr=lr,
         min_lr=0,
-        warmup_steps=first_cycle_steps // 2
+        warmup_steps=warmup_steps
     )
 
     criterion = torch.nn.CrossEntropyLoss()
@@ -202,8 +203,10 @@ def train_loop(model, optimizer, lr_scheduler, epochs, batch, train_loader,
             train_acc.update(acc.mean().item(), len(images))
             pbar.set_description(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f}")
             mf.write(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f}\n")
-        mf.write(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
-        print(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
+
+        if privacy_engine is not None:
+            mf.write(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
+            print(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
 
         torch.save(model.state_dict(), folder_prefix + model_prefix + str(epoch) + '.pt')
 

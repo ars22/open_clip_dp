@@ -93,7 +93,7 @@ def train_fromscratch_private(init_lr, epochs, batch, clip, eps, delta, folder_p
 def main():
     lrs = [1e-4]
     epochs=40
-    batch=32
+    batch=64
     
     eps=1.
     delta=1e-10
@@ -101,13 +101,12 @@ def main():
     #clips=[0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0]
     clips=[3.]#, 7.5, 10.0]
 
-    folder = 'runs_fmow/private_finetune/'
+    folder = 'runs_fmow/nonprivate_finetune/'
     
     for lr in lrs:
-        for clip in clips:
-            folder += 'l{}_e{}_b{}_c{}_eps{}_del{}/'.format(lr, epochs, batch, clip, eps, delta)
-            #train_fromscratch_private(lr, epochs, batch, clip, eps, delta, folder)
-            finetune_private(lr, epochs, batch, clip, eps, delta, folder)
+        folder += 'l{}_e{}_b{}/'.format(lr, epochs, batch)
+        #train_fromscratch_private(lr, epochs, batch, clip, eps, delta, folder)
+        finetune_nonprivate(lr, epochs, batch, folder)
             
 if __name__=='__main__':
     main()

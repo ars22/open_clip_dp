@@ -12,6 +12,8 @@ import pickle
 
 from opacus import PrivacyEngine
 
+from resisc_dataset import ResiscDataset
+
 import numpy as np
 import random
 np.random.seed(42)
@@ -92,6 +94,10 @@ def init_fmow(preprocess):
     )
     return (fmow_train_dataset, fmow_test_dataset)
 
+def init_resisc(root, preprocess):
+    resisc_train_dataset = ResiscDataset('train', preprocess)
+    resisc_test_dataset = ResiscDataset('test', preprocess)
+    return (resisc_train_dataset, resisc_test_dataset)
 
 def priv_init_training(model,
                        lr, epochs, batch, clip,
@@ -202,8 +208,10 @@ def train_loop(model, optimizer, lr_scheduler, epochs, batch, train_loader,
             train_acc.update(acc.mean().item(), len(images))
             pbar.set_description(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f}")
             mf.write(f"Loss: {train_loss.get():.6f} Acc: {train_acc.get():.6f}\n")
-        mf.write(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
-        print(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
+
+        if privacy_engine is not None:
+            mf.write(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
+            print(f"epsilon:{privacy_engine.get_epsilon(10e-10)}")
 
         torch.save(model.state_dict(), folder_prefix + model_prefix + str(epoch) + '.pt')
 

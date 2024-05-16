@@ -2,6 +2,8 @@ from model_utils import *
 
 import torch
 
+import typer
+
 def finetune_nonprivate(init_lr, epochs, batch, folder_prefix):
     if not os.path.exists(folder_prefix):
         os.makedirs(folder_prefix)
@@ -18,7 +20,7 @@ def finetune_nonprivate(init_lr, epochs, batch, folder_prefix):
     model = train_loop(model, optimizer, lr_scheduler, epochs, batch,
                        data_loader, folder_prefix)
 
-    test_accuracy = eval(model, test_data, folder_prefix)
+    test_accuracy = eval(model, test_data, batch, folder_prefix)
 
     return (model, test_accuracy)
     
@@ -40,7 +42,7 @@ def finetune_private(init_lr, epochs, batch, clip, eps, delta, folder_prefix):
     model = train_loop(model, optimizer, lr_scheduler, epochs, batch,
                        data_loader, folder_prefix, privacy_engine=privacy_engine)
 
-    test_accuracy = eval(model, test_data, folder_prefix)
+    test_accuracy = eval(model, test_data, batch, folder_prefix)
 
     return (model, test_accuracy)
 
@@ -62,7 +64,7 @@ def train_fromscratch_nonprivate(init_lr, epochs, batch, folder_prefix):
     model = train_loop(model, optimizer, lr_scheduler, epochs, batch,
                        data_loader, folder_prefix)
 
-    test_accuracy = eval(model, test_data, folder_prefix)
+    test_accuracy = eval(model, test_data, batch, folder_prefix)
 
     return (model, test_accuracy)
 
@@ -86,27 +88,35 @@ def train_fromscratch_private(init_lr, epochs, batch, clip, eps, delta, folder_p
     model = train_loop(model, optimizer, lr_scheduler, epochs, batch,
                        data_loader, folder_prefix, privacy_engine=privacy_engine)
 
-    test_accuracy = eval(model, test_data, folder_prefix)
+    test_accuracy = eval(model, test_data, batch, folder_prefix)
 
     return (model, test_accuracy)
 
-def main():
-    lrs = [1e-4]
-    epochs=15
-    batch=64
+def main(lr: float = typer.Option(default=...),
+         epochs: int = typer.Option(default=...),
+         batch: int = typer.Option(default=32),
+         eps: float = typer.Option(default=...),
+         delta: float = typer.Option(default=1e-10),
+         clip: float  = typer.Option(default=...),
+         ):
+   # lrs = [5e-5, 1e-4]
+   # epochs=8
+   # batch=32
     
-    eps=1.
-    delta=1e-10
+   # eps=0.3
+   # delta=1e-10
 
     #clips=[0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0]
-    clips=[3.]#, 7.5, 10.0]
+   # clips=[2.]#, 7.5, 10.0]
 
-    folder = 'runs_resisc/nonprivate_scratch/'
+    folder = 'runs_resisc/private_finetune/'
     
-    for lr in lrs:
-        folder += 'l{}_e{}_b{}/'.format(lr, epochs, batch)
-        #train_fromscratch_private(lr, epochs, batch, clip, eps, delta, folder)
-        train_fromscratch_nonprivate(lr, epochs, batch, folder)
+    #for lr in lrs:
+    #    for clip in clips:
+    folder_ = folder + 'l{}_e{}_b{}_c{}_eps{}_del{}/'.format(lr, epochs, batch, clip, eps, delta)
+    print(folder_)
+    finetune_private(lr, epochs, batch, clip, eps, delta, folder_)
+    #train_fromscratch_nonprivate(lr, epochs, batch, folder)
             
 if __name__=='__main__':
-    main()
+    typer.run(main)

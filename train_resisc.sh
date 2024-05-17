@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Arrays of parameters
-learning_rates=(1e-4 5e-5)
+learning_rates=(5e-5)
 epochs=(8)
 clipping_norms=(2.0)
-epsilons=(0.3 0.4)
+epsilons=(0.4)
 
 # Loop over arrays
 for lr in "${learning_rates[@]}"; do

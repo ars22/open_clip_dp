@@ -23,6 +23,10 @@ VITS='ViT-S-32'
 VITB='ViT-B-32'
 LAION='laion2b_s34b_b79k'
 
+PCAM_LABELS=2
+FMOW_LABELS=62
+RESISC_LABELS=45
+
 class AverageMeter:
     def __init__(self):
         self.num = 0

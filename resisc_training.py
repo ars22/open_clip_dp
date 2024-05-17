@@ -13,7 +13,7 @@ def finetune_nonprivate(init_lr, epochs, batch, folder_prefix):
     network, preprocess = init_model(VITB, LAION) 
     (train_data, test_data) = init_resisc(root='.', preprocess=preprocess)
 
-    lp = torch.nn.Linear(in_features=512, out_features=62)
+    lp = torch.nn.Linear(in_features=512, out_features=RESISC_LABELS)
     model = Model(network, lp).cuda()
     model, optimizer, data_loader, lr_scheduler = init_training(model, init_lr, epochs, batch, train_data)
 
@@ -33,7 +33,7 @@ def finetune_private(init_lr, epochs, batch, clip, eps, delta, folder_prefix):
     network, preprocess = init_model(VITB, LAION, private=True) 
     (train_data, test_data) = init_resisc(root='.', preprocess=preprocess)
 
-    lp = torch.nn.Linear(in_features=512, out_features=62)
+    lp = torch.nn.Linear(in_features=512, out_features=RESISC_LABELS)
     model = Model(network, lp).cuda()
     model, optimizer, data_loader, lr_scheduler, privacy_engine = priv_init_training(model, init_lr, epochs, batch,
                                                                                      clip, eps, delta, 
@@ -55,7 +55,7 @@ def train_fromscratch_nonprivate(init_lr, epochs, batch, folder_prefix):
     network, preprocess = init_model(VITB)
     (train_data, test_data) = init_resisc(root='.', preprocess=preprocess)
 
-    lp = torch.nn.Linear(in_features=512, out_features=62)
+    lp = torch.nn.Linear(in_features=512, out_features=RESISC_LABELS)
     model = Model(network, lp).cuda()
     model.apply(initialize_weights)
 
@@ -77,7 +77,7 @@ def train_fromscratch_private(init_lr, epochs, batch, clip, eps, delta, folder_p
     network, preprocess = init_model(VITB, pretrained_name=None, private=True) 
     (train_data, test_data) = init_resisc(root='.', preprocess=preprocess)
 
-    lp = torch.nn.Linear(in_features=512, out_features=62)
+    lp = torch.nn.Linear(in_features=512, out_features=RESISC_LABELS)
     model = Model(network, lp).cuda()
     model.apply(initialize_weights)
     
@@ -95,9 +95,9 @@ def train_fromscratch_private(init_lr, epochs, batch, clip, eps, delta, folder_p
 def main(lr: float = typer.Option(default=...),
          epochs: int = typer.Option(default=...),
          batch: int = typer.Option(default=32),
-         eps: float = typer.Option(default=...),
+         eps: float = typer.Option(default=None),
          delta: float = typer.Option(default=1e-10),
-         clip: float  = typer.Option(default=...),
+         clip: float  = typer.Option(default=None),
          ):
    # lrs = [5e-5, 1e-4]
    # epochs=8
@@ -109,14 +109,19 @@ def main(lr: float = typer.Option(default=...),
     #clips=[0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0]
    # clips=[2.]#, 7.5, 10.0]
 
-    folder = 'runs_resisc/private_finetune/'
-    
-    #for lr in lrs:
-    #    for clip in clips:
-    folder_ = folder + 'l{}_e{}_b{}_c{}_eps{}_del{}/'.format(lr, epochs, batch, clip, eps, delta)
-    print(folder_)
-    finetune_private(lr, epochs, batch, clip, eps, delta, folder_)
-    #train_fromscratch_nonprivate(lr, epochs, batch, folder)
+    folder = 'runs_resisc/nonprivate_fromscratch/'
+
+    if eps is None:
+        print('Nonprivate')
+        folder_ = folder + 'l{}_e{}_b{}/'.format(lr, epochs, batch)
+        print(folder_)
+        train_fromscratch_nonprivate(lr, epochs, batch, folder_)
+
+    else:
+        folder_ = folder + 'l{}_e{}_b{}_c{}_eps{}_del{}/'.format(lr, epochs, batch, clip, eps, delta)
+        print(folder_)
+        finetune_private(lr, epochs, batch, clip, eps, delta, folder_)
+        #train_fromscratch_nonprivate(lr, epochs, batch, folder)
             
 if __name__=='__main__':
     typer.run(main)

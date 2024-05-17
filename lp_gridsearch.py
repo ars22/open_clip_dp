@@ -15,15 +15,47 @@ from opacus import PrivacyEngine
 import itertools
 import numpy as np
 
-train_image_features = torch.load('resisc_train_features.pt').cuda()
-train_image_features /= train_image_features.norm(dim=-1, keepdim=True)
-train_labels = torch.load('resisc_train_labels.pt').cuda()
+import random
+
+data = 'pcam'
+
+if data == 'fmow':
+    train_image_features = torch.load('fmow_train_features.pt').cuda()
+    train_image_features /= train_image_features.norm(dim=-1, keepdim=True)
+    train_labels = torch.load('fmow_train_labels.pt').cuda()
+
+    test_image_features = torch.load('fmow_test_features.pt').cuda()
+    test_image_features /= test_image_features.norm(dim=-1, keepdim=True)
+    test_labels = torch.load('fmow_test_labels.pt').cuda()
+elif data == 'pcam':
+    train_image_features = torch.load('train_features.pt').cuda()
+    train_image_features /= train_image_features.norm(dim=-1, keepdim=True)
+    train_labels = torch.load('train_labels.pt').cuda()
+
+    test_image_features = torch.load('test_features.pt').cuda()
+    test_image_features /= test_image_features.norm(dim=-1, keepdim=True)
+    test_labels = torch.load('test_labels.pt').cuda()
+    print('Loaded data')
+    
+else:
+    print('Invalid dataset')
+    exit(1)
+
+    
+subsample = 10000
+indices = random.sample(range(len(train_labels)), subsample)
+print(len(set(indices)))
+
+train_image_features = train_image_features[indices]
+train_labels = train_labels[indices]
+
+print(len(train_labels))
 
 train_data = torch.utils.data.TensorDataset(train_image_features, train_labels)
 # Train the model
 
 def train_lp(lr=1.0, epochs=10, eps=0.1, max_grad_norm=1.0, delta=1e-10):
-    model = torch.nn.Linear(in_features=len(train_image_features[0]), out_features=45).cuda()
+    model = torch.nn.Linear(in_features=len(train_image_features[0]), out_features=2).cuda()
 
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(
@@ -44,7 +76,13 @@ def train_lp(lr=1.0, epochs=10, eps=0.1, max_grad_norm=1.0, delta=1e-10):
         poisson_sampling=True,
         target_delta=delta,
         target_epsilon=eps,
-        epochs=epochs
+        epochs=epochs,
+#        clipping='adaptive',
+#        target_unclipped_quantile=0.9,
+#        min_clipbound=0.5,
+#        max_clipbound=7.0,
+#        unclipped_num_std=1000.0,
+#        clipbound_learning_rate=0.2 # From paper
     )
 
     folder_prefix = 'resisc_lp/lp_lr{}_ep{}_c{}_eps{}/'.format(lr, epochs, max_grad_norm, eps)
@@ -75,10 +113,6 @@ def train_lp(lr=1.0, epochs=10, eps=0.1, max_grad_norm=1.0, delta=1e-10):
     eps = privacy_engine.accountant.get_epsilon(delta=delta)
     print('Epsilon:', eps)
     
-    test_image_features = torch.load('resisc_test_features.pt').cuda()
-    test_image_features /= test_image_features.norm(dim=-1, keepdim=True)
-    test_labels = torch.load('resisc_test_labels.pt').cuda()
-
     # Evaluate the model
     test_accuracy = None
     with torch.no_grad():
@@ -89,7 +123,7 @@ def train_lp(lr=1.0, epochs=10, eps=0.1, max_grad_norm=1.0, delta=1e-10):
     return (accuracy, test_accuracy)
 
 def train_lp_nonprivate(lr=1.0, epochs=10):
-    model = torch.nn.Linear(in_features=len(train_image_features[0]), out_features=45).cuda()
+    model = torch.nn.Linear(in_features=len(train_image_features[0]), out_features=2).cuda()
 
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(
@@ -138,9 +172,9 @@ def train_lp_nonprivate(lr=1.0, epochs=10):
     return (accuracy, test_accuracy)
 
 def gridsearch(outfile_name):
-    epochs = [2000]
-    lr = [1e-1]
-    eps = [0.3, 0.4]
+    epochs = [600]
+    lr = [0.5]
+    eps = [0.05]
     clip = [1.0]
 
     f = open(outfile_name, 'w')
@@ -185,4 +219,4 @@ def gridsearch_nonprivate(outfile_name):
 
     print('Top:', results[:5])
         
-gridsearch('lp_gridsearch_resisc_priv.csv')
+gridsearch('lp_gridsearch_pcam_priv.csv')

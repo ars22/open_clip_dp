@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Arrays of parameters
-learning_rates=(1e-4 5e-5)
-epochs=(8)
-clipping_norms=(2.0)
-epsilons=(0.3)
+learning_rates=(3e-3)
+epochs=(5)
+clipping_norms=(1.0)
+epsilons=(1.0)
 
 # Loop over arrays
 for lr in "${learning_rates[@]}"; do
@@ -13,7 +13,7 @@ for lr in "${learning_rates[@]}"; do
             for eps in "${epsilons[@]}"; do
                 echo "Training model with lr=$lr, epochs=$ep, clipping norm=$cn, epsilon=$eps"
                 # Here you can call your training script with the parameters
-		python resisc_training.py --lr $lr --epochs $ep --clip $cn --eps $eps
+		python pcam_training.py --lr $lr --epochs $ep --clip $cn --eps $eps
             done
         done
     done

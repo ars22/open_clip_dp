@@ -109,7 +109,7 @@ def main(lr: float = typer.Option(default=...),
     #clips=[0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0]
    # clips=[2.]#, 7.5, 10.0]
 
-    folder = 'runs_resisc/nonprivate_fromscratch/'
+    folder = 'runs_resisc/private_scratch/'
 
     if eps is None:
         print('Nonprivate')
@@ -120,7 +120,7 @@ def main(lr: float = typer.Option(default=...),
     else:
         folder_ = folder + 'l{}_e{}_b{}_c{}_eps{}_del{}/'.format(lr, epochs, batch, clip, eps, delta)
         print(folder_)
-        finetune_private(lr, epochs, batch, clip, eps, delta, folder_)
+        train_fromscratch_private(lr, epochs, batch, clip, eps, delta, folder_)
         #train_fromscratch_nonprivate(lr, epochs, batch, folder)
             
 if __name__=='__main__':

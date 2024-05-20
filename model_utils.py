@@ -22,6 +22,8 @@ random.seed(42)
 VITS='ViT-S-32'
 VITB='ViT-B-32'
 LAION='laion2b_s34b_b79k'
+DATACOMP_M='datacomp_m_s128m_b4k'
+COMMONPOOL_M='commonpool_m_clip_s128m_b4k'
 
 PCAM_LABELS=2
 FMOW_LABELS=62
